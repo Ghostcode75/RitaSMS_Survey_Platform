@@ -307,6 +307,83 @@ app.get('/api/survey/stats', (req, res) => {
   }
 });
 
+// Get survey questions
+app.get('/api/survey/questions', (req, res) => {
+  try {
+    const questions = SurveyService.getSurveyQuestions();
+    res.json({
+      success: true,
+      questions
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Update a survey question
+app.put('/api/survey/questions/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const questionData = req.body;
+    
+    const result = SurveyService.updateSurveyQuestion(parseInt(id), questionData);
+    
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Add a new survey question
+app.post('/api/survey/questions', (req, res) => {
+  try {
+    const questionData = req.body;
+    
+    const result = SurveyService.addSurveyQuestion(questionData);
+    
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Delete a survey question
+app.delete('/api/survey/questions/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const result = SurveyService.deleteSurveyQuestion(parseInt(id));
+    
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
 // Get customers who need manager callbacks
 app.get('/api/survey/callbacks', (req, res) => {
   try {

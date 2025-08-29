@@ -10,11 +10,20 @@ export default class App extends Component {
     selectedCustomer: null,
     showCustomerModal: false,
     editingPhone: false,
-    phoneInput: ''
+    phoneInput: '',
+    surveyQuestions: [],
+    editingQuestionId: null,
+    showQuestionModal: false,
+    selectedQuestion: null,
+    showUploadModal: false,
+    uploadGroupName: '',
+    uploadFile: null,
+    uploading: false
   };
 
   componentDidMount() {
     this.loadData();
+    this.loadSurveyQuestions();
   }
 
   loadData = async () => {
@@ -128,6 +137,185 @@ export default class App extends Component {
     }
   };
 
+  // Survey Questions Management
+  loadSurveyQuestions = async () => {
+    try {
+      const response = await fetch('/api/survey/questions');
+      const result = await response.json();
+      
+      if (result.success) {
+        this.setState({ surveyQuestions: result.questions });
+      } else {
+        console.error('Error loading survey questions:', result.error);
+      }
+    } catch (error) {
+      console.error('Error loading survey questions:', error);
+    }
+  };
+
+  addNewQuestion = async () => {
+    try {
+      const response = await fetch('/api/survey/questions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'open_text',
+          text: 'New Question - Click to Edit',
+          smsText: 'New SMS question - please edit this message'
+        })
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        this.loadSurveyQuestions(); // Reload questions
+        alert('New question added successfully!');
+      } else {
+        alert(`Error: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error adding question:', error);
+      alert('Failed to add question');
+    }
+  };
+
+  deleteQuestion = async (questionId) => {
+    if (!confirm('Are you sure you want to delete this question? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/survey/questions/${questionId}`, {
+        method: 'DELETE'
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        this.loadSurveyQuestions(); // Reload questions
+        alert('Question deleted successfully!');
+      } else {
+        alert(`Error: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error deleting question:', error);
+      alert('Failed to delete question');
+    }
+  };
+
+  openQuestionModal = (question) => {
+    this.setState({
+      selectedQuestion: { ...question },
+      showQuestionModal: true
+    });
+  };
+
+  closeQuestionModal = () => {
+    this.setState({
+      selectedQuestion: null,
+      showQuestionModal: false
+    });
+  };
+
+  updateQuestion = async (questionData) => {
+    const { selectedQuestion } = this.state;
+    
+    try {
+      const response = await fetch(`/api/survey/questions/${selectedQuestion.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(questionData)
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        this.loadSurveyQuestions(); // Reload questions
+        this.closeQuestionModal();
+        alert('Question updated successfully!');
+      } else {
+        alert(`Error: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error updating question:', error);
+      alert('Failed to update question');
+    }
+  };
+
+  // File Upload Modal Methods
+  openUploadModal = () => {
+    this.setState({ 
+      showUploadModal: true,
+      uploadGroupName: '',
+      uploadFile: null
+    });
+  };
+
+  closeUploadModal = () => {
+    this.setState({ 
+      showUploadModal: false,
+      uploadGroupName: '',
+      uploadFile: null,
+      uploading: false
+    });
+  };
+
+  handleFileChange = (event) => {
+    const file = event.target.files[0];
+    if (file && (file.type === 'text/csv' || file.name.endsWith('.csv'))) {
+      this.setState({ uploadFile: file });
+    } else {
+      alert('Please select a valid CSV file');
+      event.target.value = '';
+    }
+  };
+
+  uploadCustomerList = async () => {
+    const { uploadFile, uploadGroupName } = this.state;
+    
+    if (!uploadFile) {
+      alert('Please select a CSV file');
+      return;
+    }
+    
+    if (!uploadGroupName.trim()) {
+      alert('Please enter a group name for this customer list');
+      return;
+    }
+
+    this.setState({ uploading: true });
+
+    try {
+      const formData = new FormData();
+      formData.append('csvFile', uploadFile);
+      formData.append('groupName', uploadGroupName.trim());
+
+      const response = await fetch('/api/customers/import', {
+        method: 'POST',
+        body: formData
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        alert(`Successfully uploaded ${result.imported || 0} customers in group "${uploadGroupName}"`);
+        this.loadData(); // Reload customer data
+        this.closeUploadModal();
+      } else {
+        alert(`Error: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      alert('Failed to upload customer list');
+    }
+
+    this.setState({ uploading: false });
+  };
+
   renderDashboard() {
     const { stats, customers } = this.state;
     
@@ -137,7 +325,7 @@ export default class App extends Component {
       <div className="dashboard">
         <div className="dashboard-header">
           <h1>Rita SMS Survey Dashboard</h1>
-          <p>Puppies N Love Customer Feedback Platform</p>
+          <p>Customer Feedback Platform</p>
         </div>
 
         <div className="stats-grid">
@@ -243,8 +431,8 @@ export default class App extends Component {
       <div className="customers-page">
         <div className="page-header">
           <h2>Customer Management</h2>
-          <button onClick={this.loadSampleData} className="btn btn-primary">
-            Load Sample Data
+          <button onClick={this.openUploadModal} className="btn btn-primary">
+            Upload Customer List
           </button>
         </div>
 
@@ -301,8 +489,476 @@ export default class App extends Component {
     );
   }
 
+  renderCustomerModal() {
+    const { selectedCustomer, editingPhone, phoneInput } = this.state;
+    
+    if (!selectedCustomer) return null;
+
+    return (
+      <div className="modal-overlay" onClick={this.closeCustomerModal}>
+        <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2>{selectedCustomer.firstName} {selectedCustomer.lastName}</h2>
+            <button className="modal-close" onClick={this.closeCustomerModal}>×</button>
+          </div>
+
+          <div className="modal-body">
+            <div className="customer-info-section">
+              <h3>Customer Information</h3>
+              <div className="info-grid">
+                <div className="info-item">
+                  <label>Email:</label>
+                  <span>{selectedCustomer.email}</span>
+                </div>
+                <div className="info-item">
+                  <label>Pet Breed:</label>
+                  <span>{selectedCustomer.petBreed}</span>
+                </div>
+                <div className="info-item">
+                  <label>Store Location:</label>
+                  <span>{selectedCustomer.storeLocation}</span>
+                </div>
+                <div className="info-item">
+                  <label>Sales Associate:</label>
+                  <span>{selectedCustomer.salesAssociate}</span>
+                </div>
+                <div className="info-item">
+                  <label>Purchase Date:</label>
+                  <span>{selectedCustomer.purchaseDate}</span>
+                </div>
+                <div className="info-item">
+                  <label>Phone Number:</label>
+                  <div className="phone-edit">
+                    {editingPhone ? (
+                      <div className="phone-input-group">
+                        <input 
+                          type="tel" 
+                          value={phoneInput}
+                          onChange={(e) => this.setState({ phoneInput: e.target.value })}
+                          placeholder="Enter phone number"
+                          className="phone-input"
+                        />
+                        <button onClick={this.updatePhoneNumber} className="btn btn-success btn-sm">Save</button>
+                        <button onClick={this.cancelEditingPhone} className="btn btn-secondary btn-sm">Cancel</button>
+                      </div>
+                    ) : (
+                      <div className="phone-display">
+                        <span>{selectedCustomer.phoneNumber || 'Not provided'}</span>
+                        <button onClick={this.startEditingPhone} className="btn btn-primary btn-sm">
+                          {selectedCustomer.phoneNumber ? 'Edit' : 'Add'} Phone
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Show Survey Questions and Answers for completed surveys */}
+            {selectedCustomer.surveyCompleted && (
+              <div className="survey-responses-section">
+                <h3>📋 Survey Questions & Responses</h3>
+                <div className="responses-grid">
+                  {this.state.surveyQuestions.map((question, index) => {
+                    const response = selectedCustomer.responses?.find(r => r.questionId === question.id);
+                    return (
+                      <div key={question.id} className="question-response-pair">
+                        <div className="question-header">
+                          <span className="question-number">Q{question.id}</span>
+                          <span className="question-type">{question.type.replace('_', ' ')}</span>
+                        </div>
+                        <div className="question-text">{question.text}</div>
+                        <div className="sms-text">📱 SMS: "{question.smsText}"</div>
+                        {response ? (
+                          <div className="customer-response completed">
+                            <strong>Customer Answer:</strong> {response.processedAnswer}
+                            {response.rawAnswer !== response.processedAnswer && (
+                              <div className="raw-response">Raw SMS: "{response.rawAnswer}"</div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="customer-response unanswered">
+                            <em>Not answered</em>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  
+                  <div className="summary-scores">
+                    {selectedCustomer.satisfactionRating && (
+                      <div className="score-item">
+                        <span className="score-label">Satisfaction Rating:</span>
+                        <span className="score-value">⭐ {selectedCustomer.satisfactionRating}/5</span>
+                      </div>
+                    )}
+                    {selectedCustomer.npsScore !== undefined && (
+                      <div className="score-item">
+                        <span className="score-label">NPS Score:</span>
+                        <span className="score-value">💬 {selectedCustomer.npsScore}/10</span>
+                      </div>
+                    )}
+                    {selectedCustomer.managerCallbackRequested && (
+                      <div className="score-item callback-requested">
+                        <span className="score-label">Manager Callback:</span>
+                        <span className="score-value">📞 Requested - {selectedCustomer.callbackTopic}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Show Survey Questions for in-progress surveys */}
+            {!selectedCustomer.surveyCompleted && selectedCustomer.surveyStarted && (
+              <div className="survey-questions-section">
+                <h3>📋 Survey Questions & Progress</h3>
+                <div className="questions-progress">
+                  {this.state.surveyQuestions.map((question, index) => {
+                    const isCurrentQuestion = question.id === selectedCustomer.currentQuestionId;
+                    const response = selectedCustomer.responses?.find(r => r.questionId === question.id);
+                    const isCompleted = !!response;
+                    
+                    return (
+                      <div key={question.id} className={`question-progress-item ${isCurrentQuestion ? 'current' : ''} ${isCompleted ? 'completed' : ''}`}>
+                        <div className="question-header">
+                          <span className="question-number">Q{question.id}</span>
+                          <span className="question-status">
+                            {isCompleted ? '✅' : isCurrentQuestion ? '⏳' : '⏸️'}
+                          </span>
+                        </div>
+                        <div className="question-text">{question.text}</div>
+                        {isCompleted && response && (
+                          <div className="customer-response completed">
+                            <strong>Answer:</strong> {response.processedAnswer}
+                          </div>
+                        )}
+                        {isCurrentQuestion && (
+                          <div className="current-question-note">
+                            Customer is currently answering this question
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {!selectedCustomer.surveyCompleted && selectedCustomer.surveyStarted && (
+              <div className="survey-status-section">
+                <h3>Survey in Progress</h3>
+                <p>Customer is currently completing the survey.</p>
+                <div className="progress-info">
+                  <span>Current Question: {selectedCustomer.currentQuestionId || 'Starting...'}</span>
+                </div>
+              </div>
+            )}
+
+            {!selectedCustomer.surveyStarted && (
+              <div className="survey-not-started-section">
+                <h3>Survey Not Started</h3>
+                <p>Survey has not been initiated for this customer yet.</p>
+                {selectedCustomer.status === 'ready' && (
+                  <button 
+                    onClick={() => { this.startSurvey(selectedCustomer.id); this.closeCustomerModal(); }}
+                    className="btn btn-success"
+                  >
+                    Start Survey Now
+                  </button>
+                )}
+                {selectedCustomer.status === 'phone_needed' && (
+                  <p className="status-note">Phone number required before starting survey.</p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  renderSurveyQuestions() {
+    const { surveyQuestions } = this.state;
+
+    return (
+      <div className="questions-page">
+        <div className="page-header">
+          <div>
+            <h2>Survey Questions Management</h2>
+            <p>Edit and customize your survey questions</p>
+          </div>
+          <button onClick={this.addNewQuestion} className="btn btn-success">
+            ➕ Add Question
+          </button>
+        </div>
+
+        <div className="questions-list">
+          {surveyQuestions.map(question => (
+            <div key={question.id} className="question-card clickable" onClick={() => this.openQuestionModal(question)}>
+              <div className="question-card-header">
+                <div className="question-number">Question {question.id}</div>
+                <div className="question-type-badge">{question.type.replace('_', ' ')}</div>
+              </div>
+              
+              <div className="question-content">
+                <h3>{question.text}</h3>
+                <div className="sms-preview">
+                  <strong>📱 SMS Text:</strong>
+                  <div className="sms-bubble">"{question.smsText}"</div>
+                </div>
+                
+                {question.options && (
+                  <div className="question-options">
+                    <strong>Options:</strong>
+                    <ul>
+                      {question.options.map((option, index) => (
+                        <li key={index}>{String.fromCharCode(65 + index)}) {option}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {question.validation && (
+                  <div className="question-validation">
+                    <strong>Validation:</strong>
+                    {question.validation.min && <span> Min: {question.validation.min}</span>}
+                    {question.validation.max && <span> Max: {question.validation.max}</span>}
+                    {question.validation.required && <span> Required</span>}
+                    {question.validation.maxLength && <span> Max Length: {question.validation.maxLength}</span>}
+                  </div>
+                )}
+
+                {question.helpText && (
+                  <div className="question-help">
+                    <strong>Help Text:</strong> {question.helpText}
+                  </div>
+                )}
+              </div>
+              
+              <div className="question-actions">
+                <button 
+                  onClick={(e) => { e.stopPropagation(); this.openQuestionModal(question); }}
+                  className="btn btn-primary btn-sm"
+                >
+                  ✏️ Edit
+                </button>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); this.deleteQuestion(question.id); }}
+                  className="btn btn-danger btn-sm"
+                >
+                  🗑️ Delete
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  renderQuestionModal() {
+    const { selectedQuestion } = this.state;
+    
+    if (!selectedQuestion) return null;
+
+    const handleSave = () => {
+      this.updateQuestion(selectedQuestion);
+    };
+
+    return (
+      <div className="modal-overlay" onClick={this.closeQuestionModal}>
+        <div className="modal-content question-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2>Edit Question {selectedQuestion.id}</h2>
+            <button className="modal-close" onClick={this.closeQuestionModal}>×</button>
+          </div>
+
+          <div className="modal-body">
+            <div className="form-section">
+              <div className="form-group">
+                <label>Question Type:</label>
+                <select 
+                  value={selectedQuestion.type} 
+                  onChange={(e) => this.setState({ 
+                    selectedQuestion: { ...selectedQuestion, type: e.target.value }
+                  })}
+                  className="form-select"
+                  disabled
+                >
+                  <option value="rating">Rating Scale</option>
+                  <option value="multiple_choice">Multiple Choice</option>
+                  <option value="nps_scale">NPS Scale</option>
+                  <option value="open_text">Open Text</option>
+                  <option value="yes_no_with_text">Yes/No with Text</option>
+                </select>
+                <small className="form-hint">Question type cannot be changed</small>
+              </div>
+
+              <div className="form-group">
+                <label>Question Text:</label>
+                <textarea
+                  value={selectedQuestion.text}
+                  onChange={(e) => this.setState({ 
+                    selectedQuestion: { ...selectedQuestion, text: e.target.value }
+                  })}
+                  className="form-textarea"
+                  rows="3"
+                  placeholder="Enter the question text..."
+                />
+              </div>
+
+              <div className="form-group">
+                <label>SMS Text (sent to customer):</label>
+                <textarea
+                  value={selectedQuestion.smsText}
+                  onChange={(e) => this.setState({ 
+                    selectedQuestion: { ...selectedQuestion, smsText: e.target.value }
+                  })}
+                  className="form-textarea"
+                  rows="4"
+                  placeholder="Enter the SMS message text..."
+                />
+                <small className="form-hint">This is the actual text message sent to customers</small>
+              </div>
+
+              {selectedQuestion.helpText !== undefined && (
+                <div className="form-group">
+                  <label>Help Text:</label>
+                  <input
+                    type="text"
+                    value={selectedQuestion.helpText || ''}
+                    onChange={(e) => this.setState({ 
+                      selectedQuestion: { ...selectedQuestion, helpText: e.target.value }
+                    })}
+                    className="form-input"
+                    placeholder="Help text for invalid responses..."
+                  />
+                </div>
+              )}
+
+              {selectedQuestion.options && (
+                <div className="form-group">
+                  <label>Answer Options:</label>
+                  {selectedQuestion.options.map((option, index) => (
+                    <div key={index} className="option-input">
+                      <span className="option-letter">{String.fromCharCode(65 + index)})</span>
+                      <input
+                        type="text"
+                        value={option}
+                        onChange={(e) => {
+                          const newOptions = [...selectedQuestion.options];
+                          newOptions[index] = e.target.value;
+                          this.setState({ 
+                            selectedQuestion: { ...selectedQuestion, options: newOptions }
+                          });
+                        }}
+                        className="form-input"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="form-actions">
+                <button onClick={handleSave} className="btn btn-success">
+                  Save Changes
+                </button>
+                <button onClick={this.closeQuestionModal} className="btn btn-secondary">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  renderUploadModal() {
+    const { uploadGroupName, uploadFile, uploading } = this.state;
+    
+    return (
+      <div className="modal-overlay" onClick={this.closeUploadModal}>
+        <div className="modal-content upload-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2>📁 Upload Customer List</h2>
+            <button className="modal-close" onClick={this.closeUploadModal}>×</button>
+          </div>
+
+          <div className="modal-body">
+            <div className="form-section">
+              <div className="form-group">
+                <label>Group Name:</label>
+                <input
+                  type="text"
+                  value={uploadGroupName}
+                  onChange={(e) => this.setState({ uploadGroupName: e.target.value })}
+                  placeholder="Enter a name for this customer group (e.g., 'March 2024 Customers')"
+                  className="form-input"
+                  disabled={uploading}
+                />
+                <small className="form-hint">This name will be used to group and organize these customers</small>
+              </div>
+
+              <div className="form-group">
+                <label>CSV File:</label>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={this.handleFileChange}
+                  className="form-file-input"
+                  disabled={uploading}
+                />
+                {uploadFile && (
+                  <div className="file-info">
+                    <span className="file-name">📄 {uploadFile.name}</span>
+                    <span className="file-size">({(uploadFile.size / 1024).toFixed(1)} KB)</span>
+                  </div>
+                )}
+                <small className="form-hint">Select a CSV file containing customer information</small>
+              </div>
+
+              <div className="csv-format-help">
+                <h4>📋 Expected CSV Format:</h4>
+                <p>Your CSV should include these columns:</p>
+                <div className="csv-columns">
+                  <span className="csv-column">firstName</span>
+                  <span className="csv-column">lastName</span>
+                  <span className="csv-column">email</span>
+                  <span className="csv-column">petBreed</span>
+                  <span className="csv-column">storeLocation</span>
+                  <span className="csv-column">salesAssociate</span>
+                  <span className="csv-column">purchaseDate</span>
+                  <span className="csv-column optional">phoneNumber (optional)</span>
+                </div>
+              </div>
+
+              <div className="form-actions">
+                <button 
+                  onClick={this.uploadCustomerList} 
+                  className="btn btn-success"
+                  disabled={uploading || !uploadFile || !uploadGroupName.trim()}
+                >
+                  {uploading ? '⏳ Uploading...' : '📤 Upload Customer List'}
+                </button>
+                <button 
+                  onClick={this.closeUploadModal} 
+                  className="btn btn-secondary"
+                  disabled={uploading}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   render() {
-    const { loading, activeTab } = this.state;
+    const { loading, activeTab, showCustomerModal, showQuestionModal } = this.state;
 
     if (loading) {
       return (
@@ -336,13 +992,24 @@ export default class App extends Component {
             >
               👥 Customers
             </button>
+            <button 
+              className={`nav-item ${activeTab === 'questions' ? 'active' : ''}`}
+              onClick={() => this.setState({ activeTab: 'questions' })}
+            >
+              📋 Survey Questions
+            </button>
           </nav>
         </div>
 
         <div className="main-content">
           {activeTab === 'dashboard' && this.renderDashboard()}
           {activeTab === 'customers' && this.renderCustomers()}
+          {activeTab === 'questions' && this.renderSurveyQuestions()}
         </div>
+
+        {showCustomerModal && this.renderCustomerModal()}
+        {showQuestionModal && this.renderQuestionModal()}
+        {this.state.showUploadModal && this.renderUploadModal()}
       </div>
     );
   }

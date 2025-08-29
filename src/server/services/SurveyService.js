@@ -393,6 +393,117 @@ class SurveyService {
 
     return associates;
   }
+
+  getSurveyQuestions() {
+    return this.surveyQuestions;
+  }
+
+  updateSurveyQuestion(questionId, questionData) {
+    try {
+      const questionIndex = this.surveyQuestions.findIndex(q => q.id === questionId);
+      
+      if (questionIndex === -1) {
+        return {
+          success: false,
+          error: 'Question not found'
+        };
+      }
+
+      // Update the question while preserving the ID
+      this.surveyQuestions[questionIndex] = {
+        ...this.surveyQuestions[questionIndex],
+        ...questionData,
+        id: questionId // Ensure ID doesn't change
+      };
+
+      return {
+        success: true,
+        question: this.surveyQuestions[questionIndex],
+        message: 'Question updated successfully'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  addSurveyQuestion(questionData) {
+    try {
+      // Generate new ID (highest current ID + 1)
+      const maxId = Math.max(...this.surveyQuestions.map(q => q.id));
+      const newId = maxId + 1;
+
+      // Default question template
+      const defaultQuestion = {
+        id: newId,
+        type: 'open_text',
+        text: 'Enter your question here',
+        smsText: 'Enter your SMS message here',
+        validation: {
+          required: true,
+          maxLength: 160
+        }
+      };
+
+      // Merge with provided data
+      const newQuestion = {
+        ...defaultQuestion,
+        ...questionData,
+        id: newId // Always use the generated ID
+      };
+
+      // Add to questions array
+      this.surveyQuestions.push(newQuestion);
+
+      return {
+        success: true,
+        question: newQuestion,
+        message: 'Question added successfully'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  deleteSurveyQuestion(questionId) {
+    try {
+      const questionIndex = this.surveyQuestions.findIndex(q => q.id === questionId);
+      
+      if (questionIndex === -1) {
+        return {
+          success: false,
+          error: 'Question not found'
+        };
+      }
+
+      // Don't allow deletion if it's the only question
+      if (this.surveyQuestions.length === 1) {
+        return {
+          success: false,
+          error: 'Cannot delete the only question. Survey must have at least one question.'
+        };
+      }
+
+      // Remove the question
+      const deletedQuestion = this.surveyQuestions.splice(questionIndex, 1)[0];
+
+      return {
+        success: true,
+        question: deletedQuestion,
+        message: 'Question deleted successfully'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
 }
 
 module.exports = new SurveyService();
