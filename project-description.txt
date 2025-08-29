@@ -1,0 +1,12 @@
+Rita - SMS Customer Feedback Platform
+
+Rita is a SMS-based customer feedback platform for Puppies N Love/Animal Kingdom pet stores that:
+
+- Converts email lists to SMS contact lists (with phone number collection)
+- Sends post-purchase feedback surveys via SMS
+- Collects 6-question customer satisfaction surveys
+- Tracks pet purchase details (breed, date, associate, location)
+- Manages follow-up requests and manager callbacks
+- Exports results for business intelligence and customer service improvements
+
+Target Use Case: Post-purchase customer feedback for pet store customers
