@@ -18,12 +18,19 @@ export default class App extends Component {
     showUploadModal: false,
     uploadGroupName: '',
     uploadFile: null,
-    uploading: false
+    uploading: false,
+    customerGroups: {},
+    scheduledSurveys: [],
+    showScheduleModal: false,
+    selectedGroup: '',
+    scheduledDate: '',
+    scheduledTime: ''
   };
 
   componentDidMount() {
     this.loadData();
     this.loadSurveyQuestions();
+    this.loadScheduledSurveys();
   }
 
   loadData = async () => {
@@ -36,8 +43,21 @@ export default class App extends Component {
       const customers = await customersResponse.json();
       const stats = await statsResponse.json();
       
+      // Group customers by their group/campaign name
+      const customerGroups = {};
+      if (customers.customers) {
+        customers.customers.forEach(customer => {
+          const groupName = customer.groupName || 'Default Group';
+          if (!customerGroups[groupName]) {
+            customerGroups[groupName] = [];
+          }
+          customerGroups[groupName].push(customer);
+        });
+      }
+      
       this.setState({
         customers: customers.customers || [],
+        customerGroups,
         stats,
         loading: false
       });
@@ -316,6 +336,119 @@ export default class App extends Component {
     this.setState({ uploading: false });
   };
 
+  // Survey Scheduling Methods
+  openScheduleModal = () => {
+    this.setState({ 
+      showScheduleModal: true,
+      selectedGroup: '',
+      scheduledDate: '',
+      scheduledTime: '10:00'
+    });
+  };
+
+  closeScheduleModal = () => {
+    this.setState({ 
+      showScheduleModal: false,
+      selectedGroup: '',
+      scheduledDate: '',
+      scheduledTime: ''
+    });
+  };
+
+  scheduleGroupSurvey = async () => {
+    const { selectedGroup, scheduledDate, scheduledTime, customerGroups } = this.state;
+    
+    if (!selectedGroup) {
+      alert('Please select a customer group');
+      return;
+    }
+    
+    if (!scheduledDate) {
+      alert('Please select a date');
+      return;
+    }
+    
+    const scheduleDateTime = new Date(`${scheduledDate}T${scheduledTime}`);
+    const now = new Date();
+    
+    if (scheduleDateTime <= now) {
+      alert('Please select a future date and time');
+      return;
+    }
+
+    const customersInGroup = customerGroups[selectedGroup] || [];
+    const readyCustomers = customersInGroup.filter(c => c.status === 'ready' && c.phoneNumber);
+    
+    if (readyCustomers.length === 0) {
+      alert('No customers ready for survey in this group (need phone numbers)');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/survey/schedule', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          groupName: selectedGroup,
+          scheduledDateTime: scheduleDateTime.toISOString(),
+          customerIds: readyCustomers.map(c => c.id)
+        })
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        alert(`Survey scheduled for ${readyCustomers.length} customers in "${selectedGroup}" on ${scheduledDate} at ${scheduledTime}`);
+        this.loadScheduledSurveys();
+        this.closeScheduleModal();
+      } else {
+        alert(`Error: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error scheduling survey:', error);
+      alert('Failed to schedule survey');
+    }
+  };
+
+  loadScheduledSurveys = async () => {
+    try {
+      const response = await fetch('/api/survey/scheduled');
+      const result = await response.json();
+      
+      if (result.success) {
+        this.setState({ scheduledSurveys: result.scheduled || [] });
+      }
+    } catch (error) {
+      console.error('Error loading scheduled surveys:', error);
+    }
+  };
+
+  cancelScheduledSurvey = async (scheduleId) => {
+    if (!confirm('Are you sure you want to cancel this scheduled survey?')) {
+      return;
+    }
+    
+    try {
+      const response = await fetch(`/api/survey/scheduled/${scheduleId}`, {
+        method: 'DELETE'
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        alert('Scheduled survey cancelled');
+        this.loadScheduledSurveys();
+      } else {
+        alert(`Error: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error cancelling scheduled survey:', error);
+      alert('Failed to cancel scheduled survey');
+    }
+  };
+
   renderDashboard() {
     const { stats, customers } = this.state;
     
@@ -356,8 +489,8 @@ export default class App extends Component {
           <div className="stat-card info">
             <div className="stat-icon">💬</div>
             <div className="stat-content">
-              <h3>{stats.averageNPS}</h3>
-              <p>NPS Score</p>
+              <h3>{stats.companyNPS || stats.averageNPS}</h3>
+              <p>Company NPS</p>
             </div>
           </div>
         </div>
@@ -401,21 +534,42 @@ export default class App extends Component {
           <div className="store-performance">
             <div className="card">
               <div className="card-header">
-                <h3>Store Performance</h3>
+                <h3>🏢 NPS Performance Hierarchy</h3>
+                <span className="company-nps-badge">Company NPS: {stats.companyNPS || stats.averageNPS}</span>
               </div>
-              <div className="store-list">
-                {Object.entries(stats.byStore || {}).map(([store, data]) => (
-                  <div key={store} className="store-item">
-                    <div className="store-info">
-                      <h4>{store}</h4>
-                      <p>{data.count} surveys</p>
+              <div className="nps-hierarchy">
+                {Object.entries(stats.byStore || {}).map(([store, storeData]) => (
+                  <div key={store} className="store-nps-section">
+                    <div className="store-header">
+                      <h4>🏢 {store}</h4>
+                      <div className="store-metrics">
+                        <span className="store-nps">Store NPS: {storeData.storeNPS || 0}</span>
+                        <span className="store-count">({storeData.count} surveys)</span>
+                      </div>
                     </div>
-                    <div className="store-ratings">
-                      <span className="rating">⭐ {data.avgRating}</span>
-                      <span className="nps">💬 {data.avgNPS}</span>
+                    
+                    <div className="associates-list">
+                      {Object.entries(storeData.associates || {}).map(([associate, assocData]) => (
+                        <div key={associate} className="associate-item">
+                          <div className="associate-info">
+                            <span className="associate-name">👤 {associate}</span>
+                            <span className="associate-count">({assocData.count} surveys)</span>
+                          </div>
+                          <div className="associate-metrics">
+                            <span className="associate-rating">⭐ {assocData.avgRating}</span>
+                            <span className="associate-nps">NPS: {assocData.associateNPS || 0}</span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ))}
+                
+                {Object.keys(stats.byStore || {}).length === 0 && (
+                  <div className="empty-nps-state">
+                    <p>No survey data available yet. Complete some surveys to see NPS hierarchy.</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -875,6 +1029,110 @@ export default class App extends Component {
     );
   }
 
+  renderScheduleSurveys() {
+    const { customerGroups, scheduledSurveys } = this.state;
+    
+    return (
+      <div className="schedule-page">
+        <div className="page-header">
+          <div>
+            <h2>Schedule Surveys</h2>
+            <p>Schedule surveys by customer group for future delivery</p>
+          </div>
+          <button onClick={this.openScheduleModal} className="btn btn-primary">
+            📅 Schedule New Survey
+          </button>
+        </div>
+
+        <div className="schedule-content">
+          <div className="customer-groups-section">
+            <h3>Customer Groups</h3>
+            <div className="groups-grid">
+              {Object.entries(customerGroups).map(([groupName, customers]) => {
+                const readyCustomers = customers.filter(c => c.status === 'ready' && c.phoneNumber);
+                const completedSurveys = customers.filter(c => c.surveyCompleted).length;
+                
+                return (
+                  <div key={groupName} className="group-card">
+                    <div className="group-header">
+                      <h4>📁 {groupName}</h4>
+                      <span className="group-size">{customers.length} customers</span>
+                    </div>
+                    
+                    <div className="group-stats">
+                      <div className="stat-item">
+                        <span className="stat-label">Ready for Survey:</span>
+                        <span className="stat-value">{readyCustomers.length}</span>
+                      </div>
+                      <div className="stat-item">
+                        <span className="stat-label">Completed:</span>
+                        <span className="stat-value">{completedSurveys}</span>
+                      </div>
+                    </div>
+                    
+                    <button 
+                      onClick={() => {
+                        this.setState({ selectedGroup: groupName });
+                        this.openScheduleModal();
+                      }}
+                      className="btn btn-success btn-sm"
+                      disabled={readyCustomers.length === 0}
+                    >
+                      📅 Schedule Survey
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="scheduled-surveys-section">
+            <h3>Scheduled Surveys</h3>
+            {scheduledSurveys.length === 0 ? (
+              <div className="empty-state">
+                <p>No surveys scheduled yet</p>
+              </div>
+            ) : (
+              <div className="scheduled-list">
+                {scheduledSurveys.map(schedule => {
+                  const scheduleDate = new Date(schedule.scheduledDateTime);
+                  const isUpcoming = scheduleDate > new Date();
+                  
+                  return (
+                    <div key={schedule.id} className={`schedule-item ${isUpcoming ? 'upcoming' : 'past'}`}>
+                      <div className="schedule-info">
+                        <h4>{schedule.groupName}</h4>
+                        <div className="schedule-details">
+                          <span className="schedule-date">📅 {scheduleDate.toLocaleDateString()}</span>
+                          <span className="schedule-time">🕐 {scheduleDate.toLocaleTimeString()}</span>
+                          <span className="schedule-count">👥 {schedule.customerCount} customers</span>
+                        </div>
+                      </div>
+                      
+                      <div className="schedule-actions">
+                        <span className={`schedule-status ${schedule.status}`}>
+                          {schedule.status.replace('_', ' ')}
+                        </span>
+                        {isUpcoming && schedule.status === 'scheduled' && (
+                          <button 
+                            onClick={() => this.cancelScheduledSurvey(schedule.id)}
+                            className="btn btn-danger btn-sm"
+                          >
+                            Cancel
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   renderUploadModal() {
     const { uploadGroupName, uploadFile, uploading } = this.state;
     
@@ -957,6 +1215,107 @@ export default class App extends Component {
     );
   }
 
+  renderScheduleModal() {
+    const { selectedGroup, scheduledDate, scheduledTime, customerGroups } = this.state;
+    
+    // Get today's date in YYYY-MM-DD format for min date
+    const today = new Date().toISOString().split('T')[0];
+    
+    return (
+      <div className="modal-overlay" onClick={this.closeScheduleModal}>
+        <div className="modal-content schedule-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2>📅 Schedule Group Survey</h2>
+            <button className="modal-close" onClick={this.closeScheduleModal}>×</button>
+          </div>
+
+          <div className="modal-body">
+            <div className="form-section">
+              <div className="form-group">
+                <label>Customer Group:</label>
+                <select
+                  value={selectedGroup}
+                  onChange={(e) => this.setState({ selectedGroup: e.target.value })}
+                  className="form-select"
+                >
+                  <option value="">Select a customer group...</option>
+                  {Object.entries(customerGroups).map(([groupName, customers]) => {
+                    const readyCustomers = customers.filter(c => c.status === 'ready' && c.phoneNumber);
+                    return (
+                      <option key={groupName} value={groupName} disabled={readyCustomers.length === 0}>
+                        {groupName} ({readyCustomers.length} ready)
+                      </option>
+                    );
+                  })}
+                </select>
+                {selectedGroup && (
+                  <small className="form-hint">
+                    {customerGroups[selectedGroup]?.filter(c => c.status === 'ready' && c.phoneNumber).length || 0} customers ready for survey
+                  </small>
+                )}
+              </div>
+
+              <div className="form-group">
+                <label>Survey Date:</label>
+                <input
+                  type="date"
+                  value={scheduledDate}
+                  onChange={(e) => this.setState({ scheduledDate: e.target.value })}
+                  min={today}
+                  className="form-input"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Survey Time:</label>
+                <input
+                  type="time"
+                  value={scheduledTime}
+                  onChange={(e) => this.setState({ scheduledTime: e.target.value })}
+                  className="form-input"
+                />
+                <small className="form-hint">Surveys will be sent at this time on the selected date</small>
+              </div>
+
+              {selectedGroup && scheduledDate && (
+                <div className="schedule-preview">
+                  <h4>📋 Schedule Preview</h4>
+                  <div className="preview-details">
+                    <div className="preview-item">
+                      <strong>Group:</strong> {selectedGroup}
+                    </div>
+                    <div className="preview-item">
+                      <strong>Date & Time:</strong> {new Date(`${scheduledDate}T${scheduledTime}`).toLocaleString()}
+                    </div>
+                    <div className="preview-item">
+                      <strong>Recipients:</strong> {customerGroups[selectedGroup]?.filter(c => c.status === 'ready' && c.phoneNumber).length || 0} customers
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="form-actions">
+                <button 
+                  onClick={this.scheduleGroupSurvey} 
+                  className="btn btn-success"
+                  disabled={!selectedGroup || !scheduledDate || !scheduledTime}
+                >
+                  📅 Schedule Survey
+                </button>
+                <button 
+                  onClick={this.closeScheduleModal} 
+                  className="btn btn-secondary"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   render() {
     const { loading, activeTab, showCustomerModal, showQuestionModal } = this.state;
 
@@ -998,6 +1357,12 @@ export default class App extends Component {
             >
               📋 Survey Questions
             </button>
+            <button 
+              className={`nav-item ${activeTab === 'schedule' ? 'active' : ''}`}
+              onClick={() => this.setState({ activeTab: 'schedule' })}
+            >
+              📅 Schedule Surveys
+            </button>
           </nav>
         </div>
 
@@ -1005,11 +1370,13 @@ export default class App extends Component {
           {activeTab === 'dashboard' && this.renderDashboard()}
           {activeTab === 'customers' && this.renderCustomers()}
           {activeTab === 'questions' && this.renderSurveyQuestions()}
+          {activeTab === 'schedule' && this.renderScheduleSurveys()}
         </div>
 
         {showCustomerModal && this.renderCustomerModal()}
         {showQuestionModal && this.renderQuestionModal()}
         {this.state.showUploadModal && this.renderUploadModal()}
+        {this.state.showScheduleModal && this.renderScheduleModal()}
       </div>
     );
   }

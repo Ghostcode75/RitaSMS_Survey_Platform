@@ -322,12 +322,16 @@ class SurveyService {
     const ratings = completed.filter(c => c.satisfactionRating).map(c => c.satisfactionRating);
     const npsScores = completed.filter(c => c.npsScore !== undefined).map(c => c.npsScore);
     
+    // Calculate company-wide NPS
+    const companyNPS = this.calculateNPS(npsScores);
+    
     return {
       totalCustomers: total,
       completedSurveys: completed.length,
       completionRate: (completed.length / total) * 100,
       averageRating: ratings.length > 0 ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1) : 0,
       averageNPS: npsScores.length > 0 ? (npsScores.reduce((a, b) => a + b, 0) / npsScores.length).toFixed(1) : 0,
+      companyNPS: companyNPS,
       npsBreakdown: {
         promoters: npsScores.filter(score => score >= 9).length,
         passives: npsScores.filter(score => score >= 7 && score <= 8).length,
@@ -345,23 +349,68 @@ class SurveyService {
     customers.forEach(customer => {
       const store = customer.storeLocation || 'Unknown';
       if (!stores[store]) {
-        stores[store] = { count: 0, totalRating: 0, totalNPS: 0, validRatings: 0, validNPS: 0 };
+        stores[store] = { 
+          count: 0, 
+          totalRating: 0, 
+          totalNPS: 0, 
+          validRatings: 0, 
+          validNPS: 0,
+          npsScores: [],
+          associates: {}
+        };
       }
       stores[store].count++;
+      
       if (customer.satisfactionRating) {
         stores[store].totalRating += customer.satisfactionRating;
         stores[store].validRatings++;
       }
+      
       if (customer.npsScore !== undefined) {
         stores[store].totalNPS += customer.npsScore;
         stores[store].validNPS++;
+        stores[store].npsScores.push(customer.npsScore);
+      }
+      
+      // Track associates within each store
+      const associate = customer.salesAssociate || 'Unknown';
+      if (!stores[store].associates[associate]) {
+        stores[store].associates[associate] = {
+          count: 0,
+          totalRating: 0,
+          totalNPS: 0,
+          validRatings: 0,
+          validNPS: 0,
+          npsScores: []
+        };
+      }
+      
+      stores[store].associates[associate].count++;
+      if (customer.satisfactionRating) {
+        stores[store].associates[associate].totalRating += customer.satisfactionRating;
+        stores[store].associates[associate].validRatings++;
+      }
+      if (customer.npsScore !== undefined) {
+        stores[store].associates[associate].totalNPS += customer.npsScore;
+        stores[store].associates[associate].validNPS++;
+        stores[store].associates[associate].npsScores.push(customer.npsScore);
       }
     });
 
+    // Calculate NPS for stores and their associates
     Object.keys(stores).forEach(store => {
       const data = stores[store];
       data.avgRating = data.validRatings > 0 ? (data.totalRating / data.validRatings).toFixed(1) : 0;
       data.avgNPS = data.validNPS > 0 ? (data.totalNPS / data.validNPS).toFixed(1) : 0;
+      data.storeNPS = this.calculateNPS(data.npsScores);
+      
+      // Calculate NPS for each associate in the store
+      Object.keys(data.associates).forEach(associate => {
+        const assocData = data.associates[associate];
+        assocData.avgRating = assocData.validRatings > 0 ? (assocData.totalRating / assocData.validRatings).toFixed(1) : 0;
+        assocData.avgNPS = assocData.validNPS > 0 ? (assocData.totalNPS / assocData.validNPS).toFixed(1) : 0;
+        assocData.associateNPS = this.calculateNPS(assocData.npsScores);
+      });
     });
 
     return stores;
@@ -372,7 +421,15 @@ class SurveyService {
     customers.forEach(customer => {
       const associate = customer.salesAssociate || 'Unknown';
       if (!associates[associate]) {
-        associates[associate] = { count: 0, totalRating: 0, totalNPS: 0, validRatings: 0, validNPS: 0 };
+        associates[associate] = { 
+          count: 0, 
+          totalRating: 0, 
+          totalNPS: 0, 
+          validRatings: 0, 
+          validNPS: 0,
+          npsScores: [],
+          storeLocation: customer.storeLocation || 'Unknown'
+        };
       }
       associates[associate].count++;
       if (customer.satisfactionRating) {
@@ -382,6 +439,7 @@ class SurveyService {
       if (customer.npsScore !== undefined) {
         associates[associate].totalNPS += customer.npsScore;
         associates[associate].validNPS++;
+        associates[associate].npsScores.push(customer.npsScore);
       }
     });
 
@@ -389,9 +447,24 @@ class SurveyService {
       const data = associates[associate];
       data.avgRating = data.validRatings > 0 ? (data.totalRating / data.validRatings).toFixed(1) : 0;
       data.avgNPS = data.validNPS > 0 ? (data.totalNPS / data.validNPS).toFixed(1) : 0;
+      data.associateNPS = this.calculateNPS(data.npsScores);
     });
 
     return associates;
+  }
+
+  // Calculate proper NPS score: % Promoters - % Detractors
+  calculateNPS(scores) {
+    if (!scores || scores.length === 0) return 0;
+    
+    const promoters = scores.filter(score => score >= 9).length;
+    const detractors = scores.filter(score => score <= 6).length;
+    const total = scores.length;
+    
+    const promoterPercentage = (promoters / total) * 100;
+    const detractorPercentage = (detractors / total) * 100;
+    
+    return Math.round(promoterPercentage - detractorPercentage);
   }
 
   getSurveyQuestions() {

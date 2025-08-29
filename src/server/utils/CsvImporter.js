@@ -12,7 +12,7 @@ class CsvImporter {
     };
   }
 
-  async importFromFile(filePath) {
+  async importFromFile(filePath, groupName = 'Default Group') {
     this.customers = [];
     this.importStats = { total: 0, successful: 0, needsPhone: 0 };
 
@@ -25,11 +25,12 @@ class CsvImporter {
           results.push(row);
         })
         .on('end', () => {
-          this.processRows(results);
+          this.processRows(results, groupName);
           resolve({
             customers: this.customers,
             stats: this.importStats,
-            success: true
+            success: true,
+            imported: this.importStats.successful
           });
         })
         .on('error', (error) => {
@@ -38,7 +39,7 @@ class CsvImporter {
     });
   }
 
-  async importFromData(csvData) {
+  async importFromData(csvData, groupName = 'Default Group') {
     this.customers = [];
     this.importStats = { total: 0, successful: 0, needsPhone: 0 };
 
@@ -60,11 +61,12 @@ class CsvImporter {
         }
       }
       
-      this.processRows(results);
+      this.processRows(results, groupName);
       resolve({
         customers: this.customers,
         stats: this.importStats,
-        success: true
+        success: true,
+        imported: this.importStats.successful
       });
     });
   }
@@ -91,7 +93,7 @@ class CsvImporter {
     return result;
   }
 
-  processRows(rows) {
+  processRows(rows, groupName = 'Default Group') {
     rows.forEach((row, index) => {
       this.importStats.total++;
       
@@ -100,7 +102,7 @@ class CsvImporter {
         return;
       }
 
-      const customer = this.processCustomerRow(row, index);
+      const customer = this.processCustomerRow(row, index, groupName);
       if (customer) {
         this.customers.push(customer);
         this.importStats.successful++;
@@ -112,7 +114,7 @@ class CsvImporter {
     });
   }
 
-  processCustomerRow(row, index) {
+  processCustomerRow(row, index, groupName = 'Default Group') {
     try {
       // Extract customer info (handle Puppies N Love CSV format)
       const customer = {
@@ -127,6 +129,9 @@ class CsvImporter {
         purchaseDate: row.CustomData2?.trim(),
         salesAssociate: row.CustomData3?.trim(),
         storeLocation: row.CustomData4?.trim(),
+        
+        // Group/Campaign information
+        groupName: groupName,
         
         // Survey status
         status: 'phone_needed', // Default status

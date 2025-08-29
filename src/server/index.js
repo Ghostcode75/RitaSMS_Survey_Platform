@@ -102,7 +102,8 @@ app.post('/api/customers/import', upload.single('csvFile'), async (req, res) => 
       return res.status(400).json({ error: 'No CSV file provided' });
     }
 
-    const result = await CsvImporter.importFromFile(req.file.path);
+    const groupName = req.body.groupName || 'Default Group';
+    const result = await CsvImporter.importFromFile(req.file.path, groupName);
     
     // Clean up uploaded file
     require('fs').unlinkSync(req.file.path);
@@ -405,6 +406,107 @@ app.get('/api/survey/callbacks', (req, res) => {
         requestedAt: c.surveyCompletedAt
       })),
       count: callbacks.length
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// === SURVEY SCHEDULING ROUTES ===
+
+// In-memory storage for scheduled surveys (in production, use database)
+let scheduledSurveys = [];
+let scheduleIdCounter = 1;
+
+// Schedule a survey for a group
+app.post('/api/survey/schedule', (req, res) => {
+  try {
+    const { groupName, scheduledDateTime, customerIds } = req.body;
+    
+    if (!groupName || !scheduledDateTime || !customerIds || !Array.isArray(customerIds)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Missing required fields: groupName, scheduledDateTime, customerIds' 
+      });
+    }
+    
+    const scheduleDate = new Date(scheduledDateTime);
+    if (scheduleDate <= new Date()) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Scheduled date must be in the future' 
+      });
+    }
+    
+    const newSchedule = {
+      id: scheduleIdCounter++,
+      groupName,
+      scheduledDateTime: scheduleDate.toISOString(),
+      customerIds,
+      customerCount: customerIds.length,
+      status: 'scheduled',
+      createdAt: new Date().toISOString()
+    };
+    
+    scheduledSurveys.push(newSchedule);
+    
+    res.json({
+      success: true,
+      schedule: newSchedule,
+      message: 'Survey scheduled successfully'
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Get scheduled surveys
+app.get('/api/survey/scheduled', (req, res) => {
+  try {
+    res.json({
+      success: true,
+      scheduled: scheduledSurveys.sort((a, b) => new Date(a.scheduledDateTime) - new Date(b.scheduledDateTime))
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Cancel a scheduled survey
+app.delete('/api/survey/scheduled/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const scheduleIndex = scheduledSurveys.findIndex(s => s.id === parseInt(id));
+    
+    if (scheduleIndex === -1) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Scheduled survey not found' 
+      });
+    }
+    
+    const schedule = scheduledSurveys[scheduleIndex];
+    if (new Date(schedule.scheduledDateTime) <= new Date()) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Cannot cancel past scheduled surveys' 
+      });
+    }
+    
+    scheduledSurveys.splice(scheduleIndex, 1);
+    
+    res.json({
+      success: true,
+      message: 'Scheduled survey cancelled successfully'
     });
   } catch (error) {
     res.status(500).json({ 
