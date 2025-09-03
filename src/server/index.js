@@ -9,6 +9,9 @@ const SmsService = require('./services/SmsService');
 const SurveyService = require('./services/SurveyService');
 const CsvImporter = require('./utils/CsvImporter');
 
+// Create singleton instance
+const csvImporter = new CsvImporter();
+
 const app = express();
 
 // Connect to database
@@ -103,7 +106,7 @@ app.post('/api/customers/import', upload.single('csvFile'), async (req, res) => 
     }
 
     const groupName = req.body.groupName || 'Default Group';
-    const result = await CsvImporter.importFromFile(req.file.path, groupName);
+    const result = await csvImporter.importFromFile(req.file.path, groupName);
     
     // Clean up uploaded file
     require('fs').unlinkSync(req.file.path);
@@ -126,7 +129,7 @@ app.post('/api/customers/import-data', async (req, res) => {
       return res.status(400).json({ error: 'No CSV data provided' });
     }
 
-    const result = await CsvImporter.importFromData(csvData);
+    const result = await csvImporter.importFromData(csvData);
     res.json(result);
   } catch (error) {
     res.status(500).json({ 
@@ -137,9 +140,9 @@ app.post('/api/customers/import-data', async (req, res) => {
 });
 
 // Get all customers
-app.get('/api/customers', (req, res) => {
+app.get('/api/customers', async (req, res) => {
   try {
-    const result = CsvImporter.getCustomers();
+    const result = await csvImporter.getCustomers();
     res.json(result);
   } catch (error) {
     res.status(500).json({ 
@@ -150,10 +153,10 @@ app.get('/api/customers', (req, res) => {
 });
 
 // Get customers by status
-app.get('/api/customers/status/:status', (req, res) => {
+app.get('/api/customers/status/:status', async (req, res) => {
   try {
     const { status } = req.params;
-    const customers = CsvImporter.getCustomersByStatus(status);
+    const customers = await csvImporter.getCustomersByStatus(status);
     res.json({ customers, count: customers.length });
   } catch (error) {
     res.status(500).json({ 
@@ -164,7 +167,7 @@ app.get('/api/customers/status/:status', (req, res) => {
 });
 
 // Update customer phone number
-app.put('/api/customers/:id/phone', (req, res) => {
+app.put('/api/customers/:id/phone', async (req, res) => {
   try {
     const { id } = req.params;
     const { phoneNumber } = req.body;
@@ -173,7 +176,7 @@ app.put('/api/customers/:id/phone', (req, res) => {
       return res.status(400).json({ error: 'Phone number is required' });
     }
     
-    const result = CsvImporter.updateCustomerPhone(id, phoneNumber);
+    const result = await csvImporter.updateCustomerPhone(id, phoneNumber);
     
     if (result.success) {
       res.json(result);
@@ -189,9 +192,9 @@ app.put('/api/customers/:id/phone', (req, res) => {
 });
 
 // Export customers to CSV
-app.get('/api/customers/export', (req, res) => {
+app.get('/api/customers/export', async (req, res) => {
   try {
-    const csv = CsvImporter.exportToCSV();
+    const csv = await csvImporter.exportToCSV();
     
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename="rita-customers.csv"');
@@ -210,7 +213,7 @@ app.post('/api/customers/load-sample', async (req, res) => {
     const sampleCsvPath = path.join(__dirname, '../../sample-data/Survey email list.csv');
     
     if (require('fs').existsSync(sampleCsvPath)) {
-      const result = await CsvImporter.importFromFile(sampleCsvPath);
+      const result = await csvImporter.importFromFile(sampleCsvPath);
       res.json({
         ...result,
         message: 'Sample data loaded successfully from Survey email list.csv'
@@ -237,7 +240,8 @@ app.post('/api/survey/start/:customerId', async (req, res) => {
     const { customerId } = req.params;
     
     // Find customer
-    const customers = CsvImporter.getCustomers().customers;
+    const customersData = await csvImporter.getCustomers();
+    const customers = customersData.customers;
     const customer = customers.find(c => c.id === customerId);
     
     if (!customer) {
@@ -273,7 +277,8 @@ app.post('/api/survey/respond/:customerId', async (req, res) => {
     }
     
     // Find customer
-    const customers = CsvImporter.getCustomers().customers;
+    const customersData = await csvImporter.getCustomers();
+    const customers = customersData.customers;
     const customer = customers.find(c => c.id === customerId);
     
     if (!customer) {
@@ -295,9 +300,10 @@ app.post('/api/survey/respond/:customerId', async (req, res) => {
 });
 
 // Get survey statistics
-app.get('/api/survey/stats', (req, res) => {
+app.get('/api/survey/stats', async (req, res) => {
   try {
-    const customers = CsvImporter.getCustomers().customers;
+    const customersData = await csvImporter.getCustomers();
+    const customers = customersData.customers;
     const stats = SurveyService.getSurveyStats(customers);
     res.json(stats);
   } catch (error) {
@@ -312,11 +318,13 @@ app.get('/api/survey/stats', (req, res) => {
 app.get('/api/survey/questions', (req, res) => {
   try {
     const questions = SurveyService.getSurveyQuestions();
+    console.log(`📋 Serving ${questions.length} survey questions`); // Debug log
     res.json({
       success: true,
       questions
     });
   } catch (error) {
+    console.error('Error getting survey questions:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message 
@@ -386,9 +394,10 @@ app.delete('/api/survey/questions/:id', (req, res) => {
 });
 
 // Get customers who need manager callbacks
-app.get('/api/survey/callbacks', (req, res) => {
+app.get('/api/survey/callbacks', async (req, res) => {
   try {
-    const customers = CsvImporter.getCustomers().customers;
+    const customersData = await csvImporter.getCustomers();
+    const customers = customersData.customers;
     const callbacks = customers.filter(c => c.managerCallbackRequested);
     
     res.json({
@@ -524,7 +533,8 @@ app.post('/api/webhooks/sms', async (req, res) => {
     console.log(`📨 Incoming SMS from ${From}: ${Body}`);
     
     // Find customer by phone number
-    const customers = CsvImporter.getCustomers().customers;
+    const customersData = await csvImporter.getCustomers();
+    const customers = customersData.customers;
     const customer = customers.find(c => c.phoneNumber === From);
     
     if (!customer) {

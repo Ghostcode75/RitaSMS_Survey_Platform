@@ -24,13 +24,31 @@ export default class App extends Component {
     showScheduleModal: false,
     selectedGroup: '',
     scheduledDate: '',
-    scheduledTime: ''
+    scheduledTime: '',
+    mobileMenuOpen: false
   };
 
   componentDidMount() {
     this.loadData();
     this.loadSurveyQuestions();
     this.loadScheduledSurveys();
+  }
+
+  toggleMobileMenu = () => {
+    this.setState(prevState => ({
+      mobileMenuOpen: !prevState.mobileMenuOpen
+    }));
+  }
+
+  closeMobileMenu = () => {
+    this.setState({ mobileMenuOpen: false });
+  }
+
+  handleTabChange = (tab) => {
+    this.setState({ 
+      activeTab: tab,
+      mobileMenuOpen: false // Close mobile menu when tab changes
+    });
   }
 
   loadData = async () => {
@@ -160,10 +178,14 @@ export default class App extends Component {
   // Survey Questions Management
   loadSurveyQuestions = async () => {
     try {
+      console.log('Loading survey questions...'); // Debug log
       const response = await fetch('/api/survey/questions');
       const result = await response.json();
       
+      console.log('Survey questions response:', result); // Debug log
+      
       if (result.success) {
+        console.log('Setting survey questions:', result.questions); // Debug log
         this.setState({ surveyQuestions: result.questions });
       } else {
         console.error('Error loading survey questions:', result.error);
@@ -638,7 +660,8 @@ export default class App extends Component {
               </div>
             </div>
           ))}
-        </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -835,20 +858,27 @@ export default class App extends Component {
   renderSurveyQuestions() {
     const { surveyQuestions } = this.state;
 
+    console.log('Survey Questions in render:', surveyQuestions); // Debug log
+
     return (
       <div className="questions-page">
         <div className="page-header">
           <div>
             <h2>Survey Questions Management</h2>
-            <p>Edit and customize your survey questions</p>
+            <p>Edit and customize your survey questions ({surveyQuestions.length} questions loaded)</p>
           </div>
           <button onClick={this.addNewQuestion} className="btn btn-success">
             ➕ Add Question
           </button>
         </div>
 
-        <div className="questions-list">
-          {surveyQuestions.map(question => (
+        {surveyQuestions.length === 0 ? (
+          <div className="no-questions-message">
+            <p>Loading survey questions...</p>
+          </div>
+        ) : (
+          <div className="questions-list">
+            {surveyQuestions.map(question => (
             <div key={question.id} className="question-card clickable" onClick={() => this.openQuestionModal(question)}>
               <div className="question-card-header">
                 <div className="question-number">Question {question.id}</div>
@@ -906,7 +936,8 @@ export default class App extends Component {
               </div>
             </div>
           ))}
-        </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -1317,7 +1348,7 @@ export default class App extends Component {
   }
 
   render() {
-    const { loading, activeTab, showCustomerModal, showQuestionModal } = this.state;
+    const { loading, activeTab, showCustomerModal, showQuestionModal, mobileMenuOpen } = this.state;
 
     if (loading) {
       return (
@@ -1332,7 +1363,23 @@ export default class App extends Component {
 
     return (
       <div className="app">
-        <div className="sidebar">
+        {/* Mobile Header */}
+        <div className="mobile-header">
+          <button className="hamburger-menu" onClick={this.toggleMobileMenu}>
+            <span></span>
+            <span></span>
+            <span></span>
+          </button>
+          <div className="mobile-logo">
+            <h2>🐶 Rita</h2>
+          </div>
+        </div>
+
+        {/* Mobile Menu Overlay */}
+        {mobileMenuOpen && <div className="mobile-overlay" onClick={this.closeMobileMenu}></div>}
+
+        {/* Sidebar */}
+        <div className={`sidebar ${mobileMenuOpen ? 'mobile-open' : ''}`}>
           <div className="logo">
             <h2>🐶 Rita</h2>
             <p>SMS Survey Platform</p>
@@ -1341,25 +1388,25 @@ export default class App extends Component {
           <nav className="nav">
             <button 
               className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
-              onClick={() => this.setState({ activeTab: 'dashboard' })}
+              onClick={() => this.handleTabChange('dashboard')}
             >
               📊 Dashboard
             </button>
             <button 
               className={`nav-item ${activeTab === 'customers' ? 'active' : ''}`}
-              onClick={() => this.setState({ activeTab: 'customers' })}
+              onClick={() => this.handleTabChange('customers')}
             >
               👥 Customers
             </button>
             <button 
               className={`nav-item ${activeTab === 'questions' ? 'active' : ''}`}
-              onClick={() => this.setState({ activeTab: 'questions' })}
+              onClick={() => this.handleTabChange('questions')}
             >
               📋 Survey Questions
             </button>
             <button 
               className={`nav-item ${activeTab === 'schedule' ? 'active' : ''}`}
-              onClick={() => this.setState({ activeTab: 'schedule' })}
+              onClick={() => this.handleTabChange('schedule')}
             >
               📅 Schedule Surveys
             </button>

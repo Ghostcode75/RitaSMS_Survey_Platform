@@ -47,5 +47,8 @@ temp/
 *.db
 *.sqlite
 
+# Development data persistence
+.customers-data.json
+
 # Twilio/SMS logs (development)
 sms-logs/
