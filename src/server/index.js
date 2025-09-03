@@ -14,14 +14,20 @@ const csvImporter = new CsvImporter();
 
 const app = express();
 
-// Connect to database
+// Connect to database (graceful fallback for deployment)
 let dbStatus = { connected: false };
-connectDB().then(status => {
-  dbStatus = status;
-}).catch(err => {
-  console.error('Database connection error:', err);
-  dbStatus = { connected: false, error: err.message };
-});
+try {
+  connectDB().then(status => {
+    dbStatus = status;
+    console.log('Database connected successfully');
+  }).catch(err => {
+    console.warn('Database connection failed (running in demo mode):', err.message);
+    dbStatus = { connected: false, error: err.message, mode: 'demo' };
+  });
+} catch (err) {
+  console.warn('Database module not available (running in demo mode):', err.message);
+  dbStatus = { connected: false, error: err.message, mode: 'demo' };
+}
 
 // Middleware
 app.use(cors());
@@ -35,7 +41,9 @@ app.get('/api/health', (req, res) => {
     status: 'ok', 
     service: 'Rita SMS Survey Platform',
     version: '1.0.0',
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    database: dbStatus,
+    timestamp: new Date().toISOString()
   });
 });
 
