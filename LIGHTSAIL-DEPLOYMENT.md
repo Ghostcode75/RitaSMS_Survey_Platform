@@ -34,6 +34,7 @@ Before starting the deployment, ensure you have:
    - **HTTP** (port 80) - Allow all traffic
    - **HTTPS** (port 443) - Allow all traffic
    - **Custom** (port 3001) - Allow all traffic (for initial testing)
+   - ❌ MongoDB (port 27017) - Do NOT open publicly. Only open if absolutely required and restrict to specific IPs. Prefer MongoDB Atlas or keep local MongoDB bound to localhost (no external access).
 
 ## 🎯 Step 2: Connect to Your Instance
 
@@ -193,6 +194,36 @@ sudo systemctl enable mongod
 # Update environment file
 MONGODB_URI=mongodb://localhost:27017/rita
 ```
+
+### 6.3 MongoDB Networking and Ports (Should you open 27017?)
+
+- Recommended: Do NOT open MongoDB port 27017 to the public internet.
+- Use one of these secure patterns:
+  - MongoDB Atlas: Keep the database in Atlas and allowlist your Lightsail static IP. No inbound Mongo port needs to be open on your Lightsail instance.
+  - Amazon DocumentDB: Runs inside a VPC. Open inbound 27017 in the DocumentDB security group only to the peered Lightsail/VPC CIDR or the specific Lightsail instance IP. You do not open 27017 in the Lightsail firewall for DocumentDB because it’s outbound from the app to AWS.
+  - Local MongoDB on Lightsail: Keep bind IP set to 127.0.0.1 only (default) so it’s accessible only from the same instance. Do not open port 27017 in Lightsail firewall or UFW.
+
+#### If you must allow remote access temporarily (not recommended):
+- Limit access strictly to trusted IPs.
+- Configure both Layers:
+  1) Lightsail Firewall: Add a custom TCP rule for 27017 restricted to your office/static IP only (never 0.0.0.0/0).
+  2) OS Firewall (UFW):
+     ```bash
+     sudo ufw allow from <YOUR_TRUSTED_IP> to any port 27017 proto tcp
+     sudo ufw deny 27017/tcp  # deny others
+     sudo ufw status numbered
+     ```
+- Ensure MongoDB is configured with authentication and TLS if exposed.
+- Prefer using an SSH tunnel for admin access instead of opening the port:
+  ```bash
+  ssh -i /path/to/key.pem -L 27018:127.0.0.1:27017 bitnami@YOUR-INSTANCE-IP
+  # Then connect locally to mongodb://localhost:27018
+  ```
+
+#### Summary
+- Atlas/DocumentDB: No Mongo port open on Lightsail; control access via provider’s allowlist/security groups.
+- Local Mongo on same instance: Keep it bound to localhost; do not open 27017 externally.
+- Only open 27017 if absolutely necessary, and restrict aggressively.
 
 ## 🎯 Step 7: Configure Web Server
 

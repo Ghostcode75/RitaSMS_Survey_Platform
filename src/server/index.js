@@ -595,7 +595,8 @@ app.listen(PORT, () => {
   console.log(`📱 SMS Debug Mode: ${process.env.DEBUG_SMS === 'true' ? 'ON' : 'OFF'}`);
   console.log(`🏪 Business: ${process.env.BUSINESS_NAME || 'Not configured'}`);
   
-  if (!process.env.TWILIO_ACCOUNT_SID) {
+  const missingTwilio = !process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_PHONE_NUMBER;
+  if (missingTwilio) {
     console.log('⚠️  Twilio not configured - SMS will be in debug mode');
     console.log('   Configure TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER in .env');
   } else {
